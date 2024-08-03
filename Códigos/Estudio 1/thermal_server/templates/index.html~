@@ -1,0 +1,33 @@
+<head>
+  <title>
+    {{ server_name }}
+  </title>
+</head>
+<body>
+<div class="container">
+  <div class="row">
+    <div class="col-lg-8  offset-lg-2">
+      <h1 class="mt-5">Fuente de imagen: Equipo {{ server_name }}</h1>
+      <form action="/" method="POST">
+	Condición experimental: <br />
+	<input type="text" name="condition" value="{{ condition }}" />
+	<br />
+	<br />
+	<input type="submit" name="start" value="Iniciar captura" />
+	<input type="submit" name="stop" value="Detener captura" />
+	<input type="submit" name="rec" value="Iniciar grabación" />
+	<input type="submit" name="stopRec" value="Detener grabación" />
+      </form>
+      <br />
+      {% if stopped: %}
+      Presione el botón "Iniciar captura" para encender las cámaras y obtener imágenes. <br />
+      <br />
+      No olvide presionar el botón "Detener captura" para apagar las cámaras cuando ya <br/>
+      no necesite seguir utilizándolas.
+      {% else %}
+      <img src="{{ url_for('video_feed') }}" width="80%">
+      {% endif %}
+    </div>
+  </div>
+</div>
+</body>

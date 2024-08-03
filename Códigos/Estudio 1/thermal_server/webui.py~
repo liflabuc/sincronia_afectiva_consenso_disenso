@@ -1,0 +1,160 @@
+from flask import Flask, render_template, Response, request
+import cv2
+import time
+import yaml
+from enum import Enum
+from functools import wraps
+import threading
+
+with open('config.yaml') as f:
+    config = yaml.safe_load(f)
+
+def singleton(orig_cls):
+    orig_new = orig_cls.__new__
+    instance = None
+
+    @wraps(orig_cls.__new__)
+    def __new__(cls, *args, **kwargs):
+        nonlocal instance
+        if instance is None:
+            instance = orig_new(cls, *args, **kwargs)
+        return instance
+    orig_cls.__new__ = __new__
+    return orig_cls
+
+class State(Enum):
+    stopped = 0
+    playing  = 1
+    recording = 2
+
+    #"gst-launch-1.0 v4l2src device=/dev/video2 ! video/x-raw,format=GRAY16_LE ! appsink"
+
+class Recorder:
+    instance = None
+    @staticmethod
+    def getInstance():
+        if Recorder.instance is None:
+            Recorder.instance = Recorder()
+        return Recorder.instance
+    def __init__(self):
+        self.state = State.stopped
+        self.keepGoing = False
+        self.captureThread = None
+        self.binImageData = None
+        self.imageAccessLock = threading.Lock()
+        self.imageCount = 0
+        
+    def play(self):
+        if self.state != State.stopped:
+            return
+        self.captureThread = threading.Thread(target=self.captureLoop, args=())
+        self.captureThread.start()
+        self.state = State.playing
+    def stop(self):
+        if self.state == State.stopped:
+            return
+        if self.state == State.recording:
+            self.stopRecording()
+        self.keepGoing = False
+        self.captureThread.join(3.0)
+        self.captureThread = None
+        self.state = State.stopped
+        self.binImageData = None
+    def startRecording(self, condition):
+        pass
+    def stopRecording(self):
+        pass
+    def captureLoop(self):
+        video = cv2.VideoCapture(config['video_device'])
+        thermal = cv2.VideoCapture(config['thermal_device'])
+        print(f"Starting data capture {id(self)}", flush=True)
+        self.keepGoing = True
+        while self.keepGoing:
+            # capture frames
+            video_ok, video_frame = video.read()
+            thermal_ok, thermal_frame = thermal.read()
+            if not video_ok and thermal_ok:
+                break
+            # format for visualization
+            video_img = self.resize_h(video_frame)
+            thermal_img = self.resize_h(thermal_frame)
+            T = thermal_frame[30][40]
+            thermal_img = cv2.putText(
+                thermal_img,
+                f"{T}", (10, 470),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1, (255,255,255))
+            img = cv2.hconcat([video_img, thermal_img])
+            ret, buffer = cv2.imencode('.jpg', img)
+            data = buffer.tobytes()
+            try:
+                self.lockImage()
+                self.binImageData = data
+                self.imageCount += 1
+            finally:
+                try:
+                    self.unlockImage()
+                except:
+                    pass
+    def lockImage(self):
+        self.imageAccessLock.acquire()
+    def unlockImage(self):
+        self.imageAccessLock.release()
+    @staticmethod
+    def resize_h(frame, H=480):
+        h,w = frame.shape[:2]
+        W = int(w * 480 / h)
+        return cv2.resize(frame, (W,H))
+
+            
+
+def gen_frames():
+    recorder = Recorder.getInstance()
+    print(f"Recorder: {id(recorder)}")
+    imageCount = -1
+    while True:
+        recorder.lockImage()
+        try:
+            if imageCount != recorder.imageCount:
+                imageCount = recorder.imageCount
+                if recorder.binImageData is not None:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + recorder.binImageData + b'\r\n')
+        finally:
+            recorder.unlockImage()
+
+
+app = Flask(__name__)
+recorder = Recorder.getInstance()
+#recorder.play()
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    try:
+        condition = request.form['condition']
+    except:
+        condition = ""
+    recorder = Recorder.getInstance()
+    if 'start' in request.form.keys():
+        recorder.play()
+    elif 'stop' in request.form.keys():
+        recorder.stop()
+    elif 'rec' in request.form.keys():
+        recorder.startRecording(condition)
+    elif 'stopRec' in request.form.keys():
+        recorder.stopRecording()
+    return render_template(
+        'index.html',
+        server_name = config['server_name'],
+        stopped = recorder.state == State.stopped,
+        condition = condition
+    )
+
+@app.route('/video_feed')
+def video_feed():
+    keep_going = False
+    time.sleep(0.2)
+    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+if __name__ == "__main__":
+    app.run(debug=True)

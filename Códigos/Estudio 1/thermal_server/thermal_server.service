@@ -1,0 +1,11 @@
+[Unit]
+Description=Thermal image capture server
+[Install]
+WantedBy=multi-user.target
+[Service]
+Type=simple
+User=lif-2
+WorkingDirectory=/opt/thermal_server
+ExecStart=/usr/bin/python3 /opt/thermal_server/thermal_server.py
+Restart=always
+TimeoutSec=600 

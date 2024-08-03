@@ -1,0 +1,5 @@
+server_name: 'Lif-2'
+#thermal_device: 0
+thermal_device: "gst-launch-1.0 v4l2src device=/dev/video2 ! video/x-raw,format=GRAY16_LE ! appsink"
+video_device: 0
+data_folder: "video"
